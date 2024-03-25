@@ -12,7 +12,7 @@ with  OverallRequiredSalesData AS (
 						END,
 					  0)
 					) AS "cost",
-	          SUM(CASE WHEN "user_name" = 'nS3 Deliverect' THEN COALESCE("total_gross",0) * 0.25 ELSE 0 END) as "delivery_cost",
+	          SUM(CASE WHEN "user_name" = 'nS3 Deliverect' THEN COALESCE("total_net",0) * 0.25 ELSE 0 END) as "delivery_cost",
 	              SUM("total_net") as "total_net"
         FROM public."SalesData"
 	  group by 1,2,3
@@ -23,11 +23,8 @@ with  OverallRequiredSalesData AS (
 	company,
 	restaurant,
 	total_gross as "predicted_sales",
-	        ROW_NUMBER() OVER (PARTITION BY company, restaurant,date ORDER BY created_at DESC) AS rn
+	ROW_NUMBER() OVER (PARTITION BY company, restaurant,date ORDER BY created_at DESC) AS rn
 		from public."Predictions_predictions"
--- 		where date>= '2024-02-01'
---         and date<= '2024-02-29'
---         and company= 'Los Tacos'
 	)
 	,
 	MonthlyTotalSales as (
@@ -73,18 +70,12 @@ with  OverallRequiredSalesData AS (
 	restaurant,
   	SUM(COALESCE("employee_cost",0)) as "employee_cost"
   from public."Predictions_employeecostandhoursinfo"
---   where
---   	 date>= '2024-02-01'
---         and date<= '2024-02-29'
---         and company= 'Los Tacos'
   group by 1,2,3),
   CompanyNames as (
   select
   	id,
 	 name
 	  from accounts_company
--- 	  where
--- 	  name='Los Tacos'
   ),
   RestaurantTemp as (
   select
@@ -144,10 +135,15 @@ with  OverallRequiredSalesData AS (
     COALESCE(ec."employee_cost",0) as "employee_cost",
     ar."total_net" - ar."cost" as "gross_profit",
     ar."total_net" - ar."cost" - ar."delivery_cost" - COALESCE(ar."rent",0) - COALESCE(ec."employee_cost",0)-COALESCE(ar.fixed_cost,0) as "net_profit",
+    ar."total_net" - ar."cost" - ar."delivery_cost" - COALESCE(ec."employee_cost",0) as "operating_profit",
     CASE 
       WHEN ar."total_net" > 0 THEN (ar."total_net" - ar."cost")*100 / NULLIF(ar."total_net", 0)
       ELSE 0 
     END as "gross_profit_percentage",
+    CASE 
+      WHEN ar."total_net" > 0 THEN (ar."total_net" - ar."cost" - ar."delivery_cost" - COALESCE(ec."employee_cost",0))*100 / NULLIF(ar."total_net", 0)
+      ELSE 0 
+    END as "operating_profit_percentage",
     CASE 
       WHEN ar."total_net" > 0 THEN (ar."total_net"- ar."cost"-ar."delivery_cost" - COALESCE(ar."rent",0) - COALESCE(ec."employee_cost",0)-COALESCE(ar.fixed_cost,0))*100 / NULLIF(ar."total_net", 0)
       ELSE 0 
@@ -170,15 +166,17 @@ with  OverallRequiredSalesData AS (
     SUM(ar."employee_cost") as employee_cost,
     SUM(ar."rent") as rent,
     SUM(ar."fixed_cost") as fixed_cost,
+    SUM(ar."operating_profit") as operating_profit,
     SUM(ar."gross_profit") as gross_profit,
     SUM(ar."net_profit") as net_profit,
     AVG(ar."gross_profit_percentage") as gross_profit_percentage,
+    AVG(ar."operating_profit_percentage") as operating_profit_percentage,
     AVG(ar."net_profit_percentage") as net_profit_percentage
 	  from TempData ar
     group by 1,2,3
 	)
 INSERT INTO public."DailyHistoricalMasterTable"(
-	id, gastronomic_day, company, restaurant, total_net, cost, gross_profit, delivery_cost, rent, employee_cost, fixed_cost, net_profit, gross_profit_percentage, net_profit_percentage)
+	id, gastronomic_day, company, restaurant, total_net, cost, gross_profit, delivery_cost, rent, employee_cost, fixed_cost, net_profit, gross_profit_percentage, net_profit_percentage,operating_profit,operating_profit_percentage)
 	select 
 			FLOOR(RANDOM() * 9223372036854775807::bigint) + 1::BIGINT,
 			hd.period,
@@ -193,7 +191,9 @@ INSERT INTO public."DailyHistoricalMasterTable"(
 			hd.fixed_cost,
 			hd.net_profit,
 			hd.gross_profit_percentage,
-			hd.net_profit_percentage
+			hd.net_profit_percentage,
+            hd.operating_profit,
+            hd.operating_profit_percentage
 		from HistoricalData hd
             ON CONFLICT (gastronomic_day,restaurant,company)
     DO UPDATE SET
@@ -206,5 +206,7 @@ INSERT INTO public."DailyHistoricalMasterTable"(
         fixed_cost = EXCLUDED.fixed_cost,
         net_profit = EXCLUDED.net_profit,
         gross_profit_percentage = EXCLUDED.gross_profit_percentage,
-        net_profit_percentage = EXCLUDED.net_profit_percentage
+        net_profit_percentage = EXCLUDED.net_profit_percentage,
+        operating_profit = EXCLUDED.operating_profit,
+        operating_profit_percentage = EXCLUDED.operating_profit_percentage
 """
