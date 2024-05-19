@@ -3,11 +3,11 @@ import psycopg2
 import psycopg2.extras
 import logging
 from PredictionFunction.utils.params import params
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 def execute_query(query, query_name):
-    today = datetime.now()
+    today = datetime.now() - timedelta(days=1)
     start_of_month = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     try:
         with psycopg2.connect(**params) as conn:
